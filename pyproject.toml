@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "getstack-templates-mcp"
+version = "1.0.0"
+description = "MCP server for managing getstack templates"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Oleg Stefanov", email = "coderr.oleg@gmail.com"},
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "uvicorn>=0.15.0",
+    "requests>=2.31.0",
+    "gitpython>=3.1.40"
+]
+
+[project.optional-dependencies]
+dev = [
+    "uvicorn>=0.32.1",
+]
+
+[project.scripts]
+server = "server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

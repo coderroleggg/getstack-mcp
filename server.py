@@ -4,7 +4,7 @@ import logging
 import requests
 import tempfile
 import shutil
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from git import Repo
 from pathlib import Path
 from supabase import create_client, Client
@@ -18,46 +18,79 @@ logger = logging.getLogger(__name__)
 # MCP initialization
 mcp = FastMCP(
     name="GetStack Templates MCP",
-    description="MCP for managing getstack templates from Supabase database. Provides functions for listing and using templates stored in Supabase.",
-    version="2.0.0",
+    description="MCP for managing getstack templates from Supabase database with RAG search. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings.",
+    version="2.1.0",
     author="Oleg Stefanov",
 )
 
 # Supabase configuration
-SUPABASE_URL = "https://vgsfomxzqyxtwlgxrruu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnc2ZvbXh6cXl4dHdsZ3hycnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyNzQ5MzYsImV4cCI6MjA2Mzg1MDkzNn0.3bE-DI3_Hbg9gtCS-9SAV4N-4ELtRQCgCOmWaXhB2oI"
+SUPABASE_URL = "https://hckizagiiykesmoaqpea.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhja2l6YWdpaXlrZXNtb2FxcGVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzNTQ4MjgsImV4cCI6MjA2MzkzMDgyOH0.TsUnEHdzKMwfoFEgeswi4hdPEajnIp7dpzbOkSgZ_0g"
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Frontend API configuration
+FRONTEND_API_URL = os.getenv("FRONTEND_API_URL", "https://getstack.coderr.online")
 
-@mcp.tool("get_templates")
-def get_templates() -> Dict[str, Any]:
+@mcp.tool("search_templates")
+def search_templates(
+    query: str, 
+    limit: int = 10
+) -> Dict[str, Any]:
     """
-    Gets the list of available templates from the Supabase database.
+    Выполняет RAG поиск шаблонов на основе векторного сходства с README содержимым.
+    
+    Parameters:
+    - query: Поисковый запрос для поиска релевантных шаблонов
+    - limit: Максимальное количество результатов (по умолчанию 10)
     
     Returns:
-    - List of templates with repo_name, repo_url, and first 100 characters of readme_content
+    - Список шаблонов отсортированных по релевантности с оценками сходства
     """
+    similarity_threshold = 0
     try:
-        # Query templates from Supabase
-        response = supabase.table("templates").select("*").order("created_at", desc=True).execute()
+        if not query.strip():
+            return {
+                "success": False,
+                "error": "Search query cannot be empty"
+            }
+        
+        # Генерируем эмбеддинг для поискового запроса через API фронтенда
+        try:
+            query_embedding = _generate_embedding_via_api(query)
+        except Exception as e:
+            # Если не удалось сгенерировать эмбеддинг, выполняем обычный поиск по ключевым словам
+            logger.warning(f"Failed to generate embedding, falling back to keyword search: {e}")
+            return _fallback_keyword_search(query, limit)
+        
+        # Выполняем векторный поиск в Supabase
+        # Используем RPC функцию для поиска по сходству
+        response = supabase.rpc(
+            "search_templates_by_similarity",
+            {
+                "query_embedding": query_embedding,
+                "similarity_threshold": similarity_threshold,
+                "match_count": limit
+            }
+        ).execute()
         
         if not response.data:
             return {
                 "success": True,
                 "templates": [],
                 "count": 0,
-                "message": "No templates found in database"
+                "message": f"No templates found matching query '{query}' with similarity >= {similarity_threshold}",
+                "search_type": "rag"
             }
         
-        # Format templates for output
+        # Форматируем результаты
         templates = []
         for template in response.data:
             readme_preview = ""
             if template.get("readme_content"):
-                readme_preview = template["readme_content"][:100]
-                if len(template["readme_content"]) > 100:
+                readme_preview = template["readme_content"][:200]
+                if len(template["readme_content"]) > 200:
                     readme_preview += "..."
             
             templates.append({
@@ -66,20 +99,24 @@ def get_templates() -> Dict[str, Any]:
                 "repo_owner": template["repo_owner"],
                 "repo_url": template["repo_url"],
                 "readme_preview": readme_preview,
+                "similarity": round(template.get("similarity", 0), 3),
                 "created_at": template["created_at"]
             })
         
         return {
             "success": True,
             "templates": templates,
-            "count": len(templates)
+            "count": len(templates),
+            "query": query,
+            "similarity_threshold": similarity_threshold,
+            "search_type": "rag"
         }
         
     except Exception as e:
-        logger.error(f"Error fetching templates from Supabase: {e}")
+        logger.error(f"Error searching templates: {e}")
         return {
             "success": False,
-            "error": f"Database error: {str(e)}"
+            "error": f"Search error: {str(e)}"
         }
 
 
@@ -202,6 +239,118 @@ def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
         return {
             "success": False,
             "error": str(e)
+        }
+
+
+def _generate_embedding_via_api(text: str) -> List[float]:
+    """
+    Генерирует эмбеддинг для текста используя API эндпоинт фронтенда.
+    
+    Args:
+        text: Текст для генерации эмбеддинга
+        
+    Returns:
+        Список чисел представляющий эмбеддинг
+        
+    Raises:
+        ValueError: Если API недоступен или возвращает ошибку
+    """
+    try:
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Отправляем запрос к API эндпоинту фронтенда
+        response = requests.post(
+            f"{FRONTEND_API_URL}/api/embeddings",
+            json={"text": text},
+            headers=headers,
+            timeout=30  # 30 секунд таймаут
+        )
+        
+        if response.status_code == 401:
+            raise ValueError("Authentication required. Please provide valid auth token.")
+        elif response.status_code == 503:
+            raise ValueError("OpenAI API not configured on frontend server")
+        elif response.status_code != 200:
+            error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+            error_message = error_data.get('error', f'HTTP {response.status_code}')
+            raise ValueError(f"Frontend API error: {error_message}")
+        
+        data = response.json()
+        return data["embedding"]
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error when calling frontend API: {e}")
+        raise ValueError(f"Failed to connect to frontend API: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error generating embedding via API: {e}")
+        raise ValueError(f"Embedding generation failed: {str(e)}")
+
+
+def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
+    """
+    Выполняет поиск по ключевым словам как fallback когда RAG поиск недоступен.
+    
+    Args:
+        query: Поисковый запрос
+        limit: Максимальное количество результатов
+        
+    Returns:
+        Результаты поиска по ключевым словам
+    """
+    try:
+        search_term = query.strip()
+        
+        # Выполняем поиск по repo_name, repo_owner и readme_content
+        response = supabase.table("templates").select("*").or_(
+            f"repo_name.ilike.%{search_term}%,"
+            f"repo_owner.ilike.%{search_term}%,"
+            f"readme_content.ilike.%{search_term}%"
+        ).order("created_at", desc=True).limit(limit).execute()
+        
+        if not response.data:
+            return {
+                "success": True,
+                "templates": [],
+                "count": 0,
+                "message": f"No templates found matching keyword '{query}'",
+                "search_type": "keyword"
+            }
+        
+        # Форматируем результаты
+        templates = []
+        for template in response.data:
+            readme_preview = ""
+            if template.get("readme_content"):
+                readme_preview = template["readme_content"][:200]
+                if len(template["readme_content"]) > 200:
+                    readme_preview += "..."
+            
+            templates.append({
+                "id": template["id"],
+                "repo_name": template["repo_name"],
+                "repo_owner": template["repo_owner"],
+                "repo_url": template["repo_url"],
+                "readme_preview": readme_preview,
+                "similarity": 0.5,  # Фиксированное значение для keyword поиска
+                "created_at": template["created_at"]
+            })
+        
+        return {
+            "success": True,
+            "templates": templates,
+            "count": len(templates),
+            "query": query,
+            "search_type": "keyword",
+            "message": "Keyword search results (AI search unavailable)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in fallback keyword search: {e}")
+        return {
+            "success": False,
+            "error": f"Keyword search error: {str(e)}"
         }
 
 

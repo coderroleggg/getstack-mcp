@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 
 [[package]]
@@ -225,7 +226,7 @@ name = "click"
 version = "8.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/60/6c/8ca2efa64cf75a977a0d7fac081354553ebe483345c734fb6b6515d96bbc/click-8.2.1.tar.gz", hash = "sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202", size = 286342 }
 wheels = [
@@ -360,8 +361,8 @@ wheels = [
 ]
 
 [[package]]
-name = "getstack-templates-mcp"
-version = "2.0.0"
+name = "getstack-mcp"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -385,6 +386,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.15.0" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.32.1" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "gitdb"

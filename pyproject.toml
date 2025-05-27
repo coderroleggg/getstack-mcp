@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "getstack-mcp"
-version = "2.0.0"
-description = "MCP server for managing getstack templates from Supabase database"
+version = "2.1.0"
+description = "MCP server for managing getstack templates from Supabase database with RAG search"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     {name = "Oleg Stefanov", email = "coderr.oleg@gmail.com"},
 ]
 license = {text = "MIT"}
-keywords = ["mcp", "templates", "supabase", "claude"]
+keywords = ["mcp", "templates", "supabase", "claude", "rag", "embeddings"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

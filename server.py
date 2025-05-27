@@ -19,14 +19,13 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     name="GetStack Templates MCP",
     description="MCP for managing getstack templates from Supabase database with RAG search. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings.",
-    version="2.1.0",
+    version="2.1.1",
     author="Oleg Stefanov",
 )
 
 # Supabase configuration
-SUPABASE_URL = "https://hckizagiiykesmoaqpea.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhja2l6YWdpaXlrZXNtb2FxcGVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzNTQ4MjgsImV4cCI6MjA2MzkzMDgyOH0.TsUnEHdzKMwfoFEgeswi4hdPEajnIp7dpzbOkSgZ_0g"
-
+SUPABASE_URL = "https://vgsfomxzqyxtwlgxrruu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnc2ZvbXh6cXl4dHdsZ3hycnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyNzQ5MzYsImV4cCI6MjA2Mzg1MDkzNn0.3bE-DI3_Hbg9gtCS-9SAV4N-4ELtRQCgCOmWaXhB2oI"
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 

@@ -38,14 +38,14 @@ def search_templates(
     limit: int = 10
 ) -> Dict[str, Any]:
     """
-    Выполняет RAG поиск шаблонов на основе векторного сходства с README содержимым.
+    Performs RAG search of templates based on vector similarity with README content.
     
     Parameters:
-    - query: Поисковый запрос для поиска релевантных шаблонов
-    - limit: Максимальное количество результатов (по умолчанию 10)
+    - query: Search query to find relevant templates
+    - limit: Maximum number of results (default 10)
     
     Returns:
-    - Список шаблонов отсортированных по релевантности с оценками сходства
+    - List of templates sorted by relevance with similarity scores
     """
     similarity_threshold = 0
     try:
@@ -55,16 +55,16 @@ def search_templates(
                 "error": "Search query cannot be empty"
             }
         
-        # Генерируем эмбеддинг для поискового запроса через API фронтенда
+        # Generate embedding for search query via API frontend
         try:
             query_embedding = _generate_embedding_via_api(query)
         except Exception as e:
-            # Если не удалось сгенерировать эмбеддинг, выполняем обычный поиск по ключевым словам
+            # If embedding generation fails, perform keyword search
             logger.warning(f"Failed to generate embedding, falling back to keyword search: {e}")
             return _fallback_keyword_search(query, limit)
         
-        # Выполняем векторный поиск в Supabase
-        # Используем RPC функцию для поиска по сходству
+        # Perform vector search in Supabase
+        # Use RPC function for similarity search
         response = supabase.rpc(
             "search_templates_by_similarity",
             {
@@ -83,7 +83,7 @@ def search_templates(
                 "search_type": "rag"
             }
         
-        # Форматируем результаты
+        # Format results
         templates = []
         for template in response.data:
             readme_preview = ""
@@ -243,28 +243,28 @@ def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
 
 def _generate_embedding_via_api(text: str) -> List[float]:
     """
-    Генерирует эмбеддинг для текста используя API эндпоинт фронтенда.
+    Generates embedding for text using API endpoint frontend.
     
     Args:
-        text: Текст для генерации эмбеддинга
+        text: Text to generate embedding for
         
     Returns:
-        Список чисел представляющий эмбеддинг
+        List of numbers representing embedding
         
     Raises:
-        ValueError: Если API недоступен или возвращает ошибку
+        ValueError: If API is not available or returns error
     """
     try:
         headers = {
             "Content-Type": "application/json"
         }
         
-        # Отправляем запрос к API эндпоинту фронтенда
+        # Send request to API endpoint frontend
         response = requests.post(
             f"{FRONTEND_API_URL}/api/embeddings",
             json={"text": text},
             headers=headers,
-            timeout=30  # 30 секунд таймаут
+            timeout=30  # 30 seconds timeout
         )
         
         if response.status_code == 401:
@@ -289,19 +289,19 @@ def _generate_embedding_via_api(text: str) -> List[float]:
 
 def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
     """
-    Выполняет поиск по ключевым словам как fallback когда RAG поиск недоступен.
+    Performs keyword search as fallback when RAG search is unavailable.
     
     Args:
-        query: Поисковый запрос
-        limit: Максимальное количество результатов
+        query: Search query
+        limit: Maximum number of results
         
     Returns:
-        Результаты поиска по ключевым словам
+        Results of keyword search
     """
     try:
         search_term = query.strip()
         
-        # Выполняем поиск по repo_name, repo_owner и readme_content
+        # Perform keyword search in repo_name, repo_owner and readme_content
         response = supabase.table("templates").select("*").or_(
             f"repo_name.ilike.%{search_term}%,"
             f"repo_owner.ilike.%{search_term}%,"
@@ -317,7 +317,7 @@ def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
                 "search_type": "keyword"
             }
         
-        # Форматируем результаты
+        # Format results
         templates = []
         for template in response.data:
             readme_preview = ""
@@ -332,7 +332,7 @@ def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
                 "repo_owner": template["repo_owner"],
                 "repo_url": template["repo_url"],
                 "readme_preview": readme_preview,
-                "similarity": 0.5,  # Фиксированное значение для keyword поиска
+                "similarity": 0.5,  # Fixed value for keyword search
                 "created_at": template["created_at"]
             })
         

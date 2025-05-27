@@ -2,12 +2,12 @@ from mcp.server.fastmcp import FastMCP
 import os
 import logging
 import requests
-import json
 import tempfile
 import shutil
 from typing import Dict, Any, List
 from git import Repo
 from pathlib import Path
+from supabase import create_client, Client
 
 # Logging configuration
 logging.basicConfig(
@@ -18,47 +18,56 @@ logger = logging.getLogger(__name__)
 # MCP initialization
 mcp = FastMCP(
     name="GetStack Templates MCP",
-    description="MCP for managing getstack templates. Provides functions for listing and using templates from GitHub repository.",
-    version="1.0.0",
+    description="MCP for managing getstack templates from Supabase database. Provides functions for listing and using templates stored in Supabase.",
+    version="2.0.0",
     author="Oleg Stefanov",
 )
 
-# Constants
-GITHUB_REPO_OWNER = "coderroleggg"
-GITHUB_REPO_NAME = "getstack-templates"
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}"
-GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}.git"
+# Supabase configuration
+SUPABASE_URL = "https://vgsfomxzqyxtwlgxrruu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnc2ZvbXh6cXl4dHdsZ3hycnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyNzQ5MzYsImV4cCI6MjA2Mzg1MDkzNn0.3bE-DI3_Hbg9gtCS-9SAV4N-4ELtRQCgCOmWaXhB2oI"
+
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 @mcp.tool("get_templates")
 def get_templates() -> Dict[str, Any]:
     """
-    Gets the list of available templates from the GitHub repository.
+    Gets the list of available templates from the Supabase database.
     
     Returns:
-    - List of template names (folders in the repository root)
+    - List of templates with repo_name, repo_url, and first 100 characters of readme_content
     """
     try:
-        # Use GitHub API to get repository contents
-        response = requests.get(f"{GITHUB_API_URL}/contents/")
+        # Query templates from Supabase
+        response = supabase.table("templates").select("*").order("created_at", desc=True).execute()
         
-        if response.status_code != 200:
+        if not response.data:
             return {
-                "success": False,
-                "error": f"Failed to fetch repository contents. Status code: {response.status_code}"
+                "success": True,
+                "templates": [],
+                "count": 0,
+                "message": "No templates found in database"
             }
         
-        contents = response.json()
-        
-        # Filter only directories
+        # Format templates for output
         templates = []
-        for item in contents:
-            if item.get("type") == "dir":
-                templates.append({
-                    "name": item["name"],
-                    "path": item["path"],
-                    "url": item["html_url"]
-                })
+        for template in response.data:
+            readme_preview = ""
+            if template.get("readme_content"):
+                readme_preview = template["readme_content"][:100]
+                if len(template["readme_content"]) > 100:
+                    readme_preview += "..."
+            
+            templates.append({
+                "id": template["id"],
+                "repo_name": template["repo_name"],
+                "repo_owner": template["repo_owner"],
+                "repo_url": template["repo_url"],
+                "readme_preview": readme_preview,
+                "created_at": template["created_at"]
+            })
         
         return {
             "success": True,
@@ -66,27 +75,21 @@ def get_templates() -> Dict[str, Any]:
             "count": len(templates)
         }
         
-    except requests.RequestException as e:
-        logger.error(f"Error fetching templates: {e}")
-        return {
-            "success": False,
-            "error": f"Network error: {str(e)}"
-        }
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Error fetching templates from Supabase: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": f"Database error: {str(e)}"
         }
 
 
 @mcp.tool("use_template")
-def use_template(template_name: str, current_folder: str) -> Dict[str, Any]:
+def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
     """
-    Clones a specific template from the repository to the specified folder.
+    Clones a specific template repository from Supabase to the specified folder.
     
     Parameters:
-    - template_name: Name of the template to use (folder name in the repository)
+    - template_id: ID of the template in Supabase database
     - current_folder: Target folder where to copy the template (full absolute path)
     
     Returns:
@@ -94,10 +97,10 @@ def use_template(template_name: str, current_folder: str) -> Dict[str, Any]:
     """
     try:
         # Validate inputs
-        if not template_name:
+        if not template_id:
             return {
                 "success": False,
-                "error": "Template name is required"
+                "error": "Template ID is required"
             }
         
         if not current_folder:
@@ -106,54 +109,70 @@ def use_template(template_name: str, current_folder: str) -> Dict[str, Any]:
                 "error": "Target folder is required"
             }
         
+        # Get template from Supabase
+        response = supabase.table("templates").select("*").eq("id", template_id).execute()
+        
+        if not response.data:
+            return {
+                "success": False,
+                "error": f"Template with ID '{template_id}' not found in database"
+            }
+        
+        template = response.data[0]
+        repo_url = template["repo_url"]
+        repo_name = template["repo_name"]
+        repo_owner = template["repo_owner"]
+        
         # Expand the path and make it absolute
         target_path = Path(current_folder).expanduser().absolute()
         
         # Create target directory if it doesn't exist
         target_path.mkdir(parents=True, exist_ok=True)
         
-        # First, check if the template exists
-        response = requests.get(f"{GITHUB_API_URL}/contents/{template_name}")
+        # Check if repository is accessible
+        github_api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        github_response = requests.get(github_api_url)
         
-        if response.status_code == 404:
+        if github_response.status_code == 404:
             return {
                 "success": False,
-                "error": f"Template '{template_name}' not found in the repository"
+                "error": f"Repository '{repo_owner}/{repo_name}' not found or is private"
             }
-        elif response.status_code != 200:
+        elif github_response.status_code != 200:
             return {
                 "success": False,
-                "error": f"Failed to check template. Status code: {response.status_code}"
+                "error": f"Failed to access repository. Status code: {github_response.status_code}"
             }
         
         # Create a temporary directory for cloning
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             
-            logger.info(f"Cloning repository to temporary directory: {temp_path}")
+            logger.info(f"Cloning repository {repo_url} to temporary directory: {temp_path}")
             
             # Clone the repository
-            repo = Repo.clone_from(
-                GITHUB_REPO_URL,
-                temp_path,
-                depth=1  # Shallow clone for faster operation
-            )
-            
-            # Path to the template in the cloned repo
-            template_path = temp_path / template_name
-            
-            if not template_path.exists() or not template_path.is_dir():
+            try:
+                repo = Repo.clone_from(
+                    repo_url,
+                    temp_path,
+                    depth=1  # Shallow clone for faster operation
+                )
+            except Exception as clone_error:
                 return {
                     "success": False,
-                    "error": f"Template '{template_name}' not found in the cloned repository"
+                    "error": f"Failed to clone repository: {str(clone_error)}"
                 }
             
-            # Copy template files to the target directory
+            # Copy all files from the cloned repo to the target directory
             copied_files = []
-            for item in template_path.rglob("*"):
-                if item.is_file():
-                    # Calculate relative path from template root
-                    relative_path = item.relative_to(template_path)
+            for item in temp_path.rglob("*"):
+                if item.is_file() and not item.name.startswith('.git'):
+                    # Calculate relative path from repo root
+                    relative_path = item.relative_to(temp_path)
+                    
+                    # Skip .git directory and its contents
+                    if '.git' in relative_path.parts:
+                        continue
                     
                     # Target file path
                     target_file = target_path / relative_path
@@ -169,10 +188,13 @@ def use_template(template_name: str, current_folder: str) -> Dict[str, Any]:
             
             return {
                 "success": True,
-                "template_name": template_name,
+                "template_id": template_id,
+                "template_name": repo_name,
+                "repo_url": repo_url,
                 "target_folder": str(target_path),
                 "files_copied": len(copied_files),
-                "files": copied_files
+                "files": copied_files[:20] if len(copied_files) > 20 else copied_files,  # Limit output for readability
+                "total_files": len(copied_files)
             }
         
     except Exception as e:

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "getstack-templates-mcp"
-version = "1.0.0"
-description = "MCP server for managing getstack templates"
+version = "2.0.0"
+description = "MCP server for managing getstack templates from Supabase database"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -16,7 +16,8 @@ dependencies = [
     "mcp>=1.0.0",
     "uvicorn>=0.15.0",
     "requests>=2.31.0",
-    "gitpython>=3.1.40"
+    "gitpython>=3.1.40",
+    "supabase>=2.0.0"
 ]
 
 [project.optional-dependencies]

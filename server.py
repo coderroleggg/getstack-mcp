@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # MCP initialization
 mcp = FastMCP(
     name="GetStack Templates MCP",
-    description="MCP for managing getstack templates from Supabase database with RAG search. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings.",
-    version="2.1.2",
+    description="MCP for managing getstack templates from Supabase database with RAG search and popularity metrics. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings, likes and dislikes data.",
+    version="2.2.0",
     author="Oleg Stefanov",
 )
 
@@ -45,7 +45,7 @@ def search_templates(
     - limit: Maximum number of results (default 10)
     
     Returns:
-    - List of templates sorted by relevance with similarity scores
+    - List of templates sorted by relevance with similarity scores, likes and dislikes counts
     """
     similarity_threshold = 0
     try:
@@ -99,7 +99,9 @@ def search_templates(
                 "repo_url": template["repo_url"],
                 "readme_preview": readme_preview,
                 "similarity": round(template.get("similarity", 0), 3),
-                "created_at": template["created_at"]
+                "created_at": template["created_at"],
+                "likes_count": template.get("likes_count", 0),
+                "dislikes_count": template.get("dislikes_count", 0)
             })
         
         return {
@@ -129,7 +131,7 @@ def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
     - current_folder: Target folder where to copy the template (full absolute path)
     
     Returns:
-    - Operation status and copied files information
+    - Operation status, copied files information, and template popularity metrics (likes/dislikes)
     """
     try:
         # Validate inputs
@@ -230,7 +232,9 @@ def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
                 "target_folder": str(target_path),
                 "files_copied": len(copied_files),
                 "files": copied_files[:20] if len(copied_files) > 20 else copied_files,  # Limit output for readability
-                "total_files": len(copied_files)
+                "total_files": len(copied_files),
+                "likes_count": template.get("likes_count", 0),
+                "dislikes_count": template.get("dislikes_count", 0)
             }
         
     except Exception as e:
@@ -333,7 +337,9 @@ def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
                 "repo_url": template["repo_url"],
                 "readme_preview": readme_preview,
                 "similarity": 0.5,  # Fixed value for keyword search
-                "created_at": template["created_at"]
+                "created_at": template["created_at"],
+                "likes_count": template.get("likes_count", 0),
+                "dislikes_count": template.get("dislikes_count", 0)
             })
         
         return {

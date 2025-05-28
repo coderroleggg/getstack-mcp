@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "getstack-mcp"
-version = "2.1.2"
+version = "2.2.0"
 description = "MCP server for managing getstack templates from Supabase database with RAG search"
 readme = "README.md"
 requires-python = ">=3.10"

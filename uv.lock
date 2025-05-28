@@ -244,7 +244,7 @@ wheels = [
 
 [[package]]
 name = "deprecation"
-version = "2.1.2"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },

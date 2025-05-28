@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     name="GetStack Templates MCP",
     description="MCP for managing getstack templates from Supabase database with RAG search. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings.",
-    version="2.1.1",
+    version="2.1.2",
     author="Oleg Stefanov",
 )
 

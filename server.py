@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # MCP initialization
 mcp = FastMCP(
     name="GetStack Templates MCP",
-    description="MCP for managing getstack templates from Supabase database with RAG search and popularity metrics. Provides functions for listing, searching and using templates stored in Supabase with vector embeddings, likes and dislikes data.",
-    version="2.2.0",
+    description="MCP for managing getstack templates. Provides secure template search via frontend API (with server-side embedding generation) and direct template cloning from repository sources. Includes popularity metrics like likes and dislikes.",
+    version="2.3.0",
     author="Oleg Stefanov",
 )
 
@@ -47,7 +47,6 @@ def search_templates(
     Returns:
     - List of templates sorted by relevance with similarity scores, likes and dislikes counts
     """
-    similarity_threshold = 0
     try:
         if not query.strip():
             return {
@@ -55,63 +54,61 @@ def search_templates(
                 "error": "Search query cannot be empty"
             }
         
-        # Generate embedding for search query via API frontend
         try:
-            query_embedding = _generate_embedding_via_api(query)
-        except Exception as e:
-            # If embedding generation fails, perform keyword search
-            logger.warning(f"Failed to generate embedding, falling back to keyword search: {e}")
-            return _fallback_keyword_search(query, limit)
-        
-        # Perform vector search in Supabase
-        # Use RPC function for similarity search
-        response = supabase.rpc(
-            "search_templates_by_similarity",
-            {
-                "query_embedding": query_embedding,
-                "similarity_threshold": similarity_threshold,
-                "match_count": limit
-            }
-        ).execute()
-        
-        if not response.data:
+            response = requests.get(
+                f"{FRONTEND_API_URL}/api/templates",
+                params={"search": query.strip()},
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Frontend API error: HTTP {response.status_code}"
+                }
+            
+            data = response.json()
+            templates_data = data.get("templates", [])
+            search_type = data.get("searchType", "unknown")
+            message = data.get("message", "")
+            
+            # Limit results
+            limited_templates = templates_data[:limit]
+            
+            # Format results for MCP response
+            templates = []
+            for template in limited_templates:
+                readme_preview = ""
+                if template.get("readme_content"):
+                    readme_preview = template["readme_content"][:200]
+                    if len(template["readme_content"]) > 200:
+                        readme_preview += "..."
+                
+                templates.append({
+                    "id": template["id"],
+                    "repo_name": template["repo_name"],
+                    "readme_preview": readme_preview,
+                    "similarity": template.get("similarity", 0),
+                    "created_at": template["created_at"],
+                    "likes_count": template.get("likes_count", 0),
+                    "dislikes_count": template.get("dislikes_count", 0)
+                })
+            
             return {
                 "success": True,
-                "templates": [],
-                "count": 0,
-                "message": f"No templates found matching query '{query}' with similarity >= {similarity_threshold}",
-                "search_type": "rag"
+                "templates": templates,
+                "count": len(templates),
+                "query": query,
+                "search_type": search_type,
+                "message": message
             }
-        
-        # Format results
-        templates = []
-        for template in response.data:
-            readme_preview = ""
-            if template.get("readme_content"):
-                readme_preview = template["readme_content"][:200]
-                if len(template["readme_content"]) > 200:
-                    readme_preview += "..."
             
-            templates.append({
-                "id": template["id"],
-                "repo_name": template["repo_name"],
-                "repo_owner": template["repo_owner"],
-                "repo_url": template["repo_url"],
-                "readme_preview": readme_preview,
-                "similarity": round(template.get("similarity", 0), 3),
-                "created_at": template["created_at"],
-                "likes_count": template.get("likes_count", 0),
-                "dislikes_count": template.get("dislikes_count", 0)
-            })
-        
-        return {
-            "success": True,
-            "templates": templates,
-            "count": len(templates),
-            "query": query,
-            "similarity_threshold": similarity_threshold,
-            "search_type": "rag"
-        }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error when calling frontend API: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to connect to frontend API: {str(e)}"
+            }
         
     except Exception as e:
         logger.error(f"Error searching templates: {e}")
@@ -242,120 +239,6 @@ def use_template(template_id: str, current_folder: str) -> Dict[str, Any]:
         return {
             "success": False,
             "error": str(e)
-        }
-
-
-def _generate_embedding_via_api(text: str) -> List[float]:
-    """
-    Generates embedding for text using API endpoint frontend.
-    
-    Args:
-        text: Text to generate embedding for
-        
-    Returns:
-        List of numbers representing embedding
-        
-    Raises:
-        ValueError: If API is not available or returns error
-    """
-    try:
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Send request to API endpoint frontend
-        response = requests.post(
-            f"{FRONTEND_API_URL}/api/embeddings",
-            json={"text": text},
-            headers=headers,
-            timeout=30  # 30 seconds timeout
-        )
-        
-        if response.status_code == 401:
-            raise ValueError("Authentication required. Please provide valid auth token.")
-        elif response.status_code == 503:
-            raise ValueError("OpenAI API not configured on frontend server")
-        elif response.status_code != 200:
-            error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
-            error_message = error_data.get('error', f'HTTP {response.status_code}')
-            raise ValueError(f"Frontend API error: {error_message}")
-        
-        data = response.json()
-        return data["embedding"]
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error when calling frontend API: {e}")
-        raise ValueError(f"Failed to connect to frontend API: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error generating embedding via API: {e}")
-        raise ValueError(f"Embedding generation failed: {str(e)}")
-
-
-def _fallback_keyword_search(query: str, limit: int) -> Dict[str, Any]:
-    """
-    Performs keyword search as fallback when RAG search is unavailable.
-    
-    Args:
-        query: Search query
-        limit: Maximum number of results
-        
-    Returns:
-        Results of keyword search
-    """
-    try:
-        search_term = query.strip()
-        
-        # Perform keyword search in repo_name, repo_owner and readme_content
-        response = supabase.table("templates").select("*").or_(
-            f"repo_name.ilike.%{search_term}%,"
-            f"repo_owner.ilike.%{search_term}%,"
-            f"readme_content.ilike.%{search_term}%"
-        ).order("created_at", desc=True).limit(limit).execute()
-        
-        if not response.data:
-            return {
-                "success": True,
-                "templates": [],
-                "count": 0,
-                "message": f"No templates found matching keyword '{query}'",
-                "search_type": "keyword"
-            }
-        
-        # Format results
-        templates = []
-        for template in response.data:
-            readme_preview = ""
-            if template.get("readme_content"):
-                readme_preview = template["readme_content"][:200]
-                if len(template["readme_content"]) > 200:
-                    readme_preview += "..."
-            
-            templates.append({
-                "id": template["id"],
-                "repo_name": template["repo_name"],
-                "repo_owner": template["repo_owner"],
-                "repo_url": template["repo_url"],
-                "readme_preview": readme_preview,
-                "similarity": 0.5,  # Fixed value for keyword search
-                "created_at": template["created_at"],
-                "likes_count": template.get("likes_count", 0),
-                "dislikes_count": template.get("dislikes_count", 0)
-            })
-        
-        return {
-            "success": True,
-            "templates": templates,
-            "count": len(templates),
-            "query": query,
-            "search_type": "keyword",
-            "message": "Keyword search results (AI search unavailable)"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in fallback keyword search: {e}")
-        return {
-            "success": False,
-            "error": f"Keyword search error: {str(e)}"
         }
 
 

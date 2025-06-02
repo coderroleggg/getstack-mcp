@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     name="GetStack Templates MCP",
     description="MCP for managing getstack templates. Provides secure template search via frontend API (with server-side embedding generation) and direct template cloning from repository sources. Includes popularity metrics like likes and dislikes.",
-    version="2.3.0",
+    version="2.4.0",
     author="Oleg Stefanov",
 )
 
@@ -115,6 +115,63 @@ def search_templates(
         return {
             "success": False,
             "error": f"Search error: {str(e)}"
+        }
+
+
+@mcp.tool("get_readme")
+def get_readme(template_id: str) -> Dict[str, Any]:
+    """
+    Retrieves the full README.md content for a specific template from Supabase.
+    
+    Parameters:
+    - template_id: ID of the template in Supabase database
+    
+    Returns:
+    - Full README content and basic template information
+    """
+    try:
+        # Validate input
+        if not template_id:
+            return {
+                "success": False,
+                "error": "Template ID is required"
+            }
+        
+        # Get template from Supabase with README content
+        response = supabase.table("templates").select("id, repo_name, repo_owner, readme_content, created_at, likes_count, dislikes_count").eq("id", template_id).execute()
+        
+        if not response.data:
+            return {
+                "success": False,
+                "error": f"Template with ID '{template_id}' not found in database"
+            }
+        
+        template = response.data[0]
+        readme_content = template.get("readme_content", "")
+        
+        if not readme_content:
+            return {
+                "success": False,
+                "error": f"No README content found for template '{template_id}'"
+            }
+        
+        return {
+            "success": True,
+            "template_id": template_id,
+            "repo_name": template["repo_name"],
+            "repo_owner": template["repo_owner"],
+            "readme_content": readme_content,
+            "content_length": len(readme_content),
+            "created_at": template["created_at"],
+            "likes_count": template.get("likes_count", 0),
+            "dislikes_count": template.get("dislikes_count", 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving README for template {template_id}: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to retrieve README: {str(e)}"
         }
 
 
